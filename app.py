@@ -1,169 +1,193 @@
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
-from sklearn.pipeline import Pipeline
-import uvicorn
-import pandas as pd
-import mlflow
-import json
+"""
+app.py  —  Food Delivery Time Predictor · Flask API
+-----------------------------------------------------
+Folder structure:
+  app.py
+  predict.py
+  models/
+      preprocessor.joblib
+      power_transformer.joblib
+      stacking_regressor.joblib
+  templates/
+      index.html
+  static/
+      css/style.css
+      js/main.js
+
+Run:  python app.py
+UI:   http://localhost:5000
+
+Pipeline (matches training exactly):
+  1. preprocessor.transform(X)         → ColumnTransformer (MinMax + OHE + Ordinal + passthrough)
+  2. stacking_model.predict(X_trans)   → raw prediction in power-transformed space
+  3. power_transformer.inverse_transform(pred) → actual minutes
+"""
+
+import warnings
 import joblib
+import logging
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from sklearn.exceptions import InconsistentVersionWarning
+from flask import Flask, request, jsonify, render_template
+
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger("model_api")
+
+# ── Feature schema (mirrors training data_preprocessing.py exactly) ────────────
+# Handled by MinMaxScaler
+NUM_COLS = ["age", "ratings", "pickup_time_minutes", "distance"]
+# Handled by OneHotEncoder
+NOMINAL_CAT_COLS = [
+    "weather",
+    "type_of_order",
+    "type_of_vehicle",
+    "festival",
+    "city_type",
+    "is_weekend",
+    "order_time_of_day",
+]
+# Handled by OrdinalEncoder
+ORDINAL_CAT_COLS = ["traffic", "distance_type"]
+# remainder="passthrough" — passed through as-is by ColumnTransformer
+PASSTHROUGH_COLS = ["vehicle_condition", "multiple_deliveries"]
+
+# Input column order for DataFrame construction
+ALL_FEATURES = NUM_COLS + NOMINAL_CAT_COLS + ORDINAL_CAT_COLS + PASSTHROUGH_COLS
+TARGET = "time_taken"
+
+VALID_VALUES = {
+    "traffic": ["low", "medium", "high", "jam"],
+    "distance_type": ["short", "medium", "long", "very_long"],
+}
+
+# ── Load artifacts ─────────────────────────────────────────────────────────────
+MODELS_DIR = Path("models")
+logger.info("Loading model artifacts …")
+preprocessor = joblib.load(MODELS_DIR / "preprocessor.joblib")
+power_transformer = joblib.load(MODELS_DIR / "power_transformer.joblib")
+stacking_model = joblib.load(MODELS_DIR / "stacking_regressor.joblib")
+logger.info("All artifacts loaded ✓")
+
+# ── Flask app ──────────────────────────────────────────────────────────────────
+app = Flask(__name__)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def validate(data: dict) -> list:
+    errors = []
+    missing = [f for f in ALL_FEATURES if f not in data]
+    if missing:
+        errors.append(f"Missing fields: {missing}")
+    for col, allowed in VALID_VALUES.items():
+        if col in data and data[col] not in allowed:
+            errors.append(f"'{col}' must be one of {allowed}, got '{data[col]}'")
+    return errors
+
+
+def run_pipeline(df: pd.DataFrame) -> list:
+    """
+    Correct inference pipeline:
+      1. preprocessor.transform   — ColumnTransformer (fitted on X_train)
+      2. stacking_model.predict   — raw output in power-transformed target space
+      3. power_transformer.inverse_transform — convert back to original minutes scale
+    """
+    # Step 1: preprocess features
+    X_trans = preprocessor.transform(df)
+
+    # Step 2: model predicts in transformed-target space
+    y_pred_transformed = stacking_model.predict(X_trans)
+
+    # Step 3: inverse transform back to original scale (minutes)
+    y_pred = power_transformer.inverse_transform(
+        y_pred_transformed.reshape(-1, 1)
+    ).flatten()
+
+    return y_pred.tolist()
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    """Single-record prediction."""
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return jsonify({"error": "Empty request body"}), 400
+
+        errors = validate(data)
+        if errors:
+            return jsonify({"error": errors}), 422
+
+        df = pd.DataFrame([data])[ALL_FEATURES]
+        pred = run_pipeline(df)[0]
+        logger.info(f"Single prediction → {pred:.2f} min")
+        return jsonify(
+            {"prediction": round(pred, 4), "target": TARGET, "unit": "minutes"}
+        )
+
+    except Exception as e:
+        logger.error(f"Prediction error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/predict/batch", methods=["POST"])
+def predict_batch():
+    """Batch prediction."""
+    try:
+        body = request.get_json(force=True)
+        records = body.get("records", [])
+
+        if not records:
+            return jsonify({"error": "No records provided"}), 400
+
+        for i, rec in enumerate(records):
+            errors = validate(rec)
+            if errors:
+                return jsonify({"error": f"Record {i}: {errors}"}), 422
+
+        df = pd.DataFrame(records)[ALL_FEATURES]
+        preds = [round(p, 4) for p in run_pipeline(df)]
+        logger.info(f"Batch prediction → {len(preds)} records")
+        return jsonify(
+            {
+                "predictions": preds,
+                "count": len(preds),
+                "target": TARGET,
+                "unit": "minutes",
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Batch error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "model": "stacking_regressor", "target": TARGET})
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
 import os
-from mlflow import MlflowClient
-from sklearn import set_config
-from scripts.data_clean_utils import perform_data_cleaning
 
-# set the output as pandas
-set_config(transform_output='pandas')
-
-# initialize dagshub
-import dagshub
-import mlflow.client
-
-dagshub.init(repo_owner='quamrl-hoda', 
-             repo_name='zomato-delivery-time-prediction-system', 
-             mlflow=True)
-
-
-# set the mlflow tracking server
-mlflow.set_tracking_uri("https://dagshub.com/quamrl-hoda/zomato-delivery-time-prediction-system.mlflow")
-
-
-class Data(BaseModel):  
-    ID: str
-    Delivery_person_ID: str
-    Delivery_person_Age: str
-    Delivery_person_Ratings: str
-    Restaurant_latitude: float
-    Restaurant_longitude: float
-    Delivery_location_latitude: float
-    Delivery_location_longitude: float
-    Order_Date: str
-    Time_Orderd: str
-    Time_Order_picked: str
-    Weatherconditions: str
-    Road_traffic_density: str
-    Vehicle_condition: int
-    Type_of_order: str
-    Type_of_vehicle: str
-    multiple_deliveries: str
-    Festival: str
-    City: str
-
-
-    
-    
-def load_model_information(file_path):
-    with open(file_path) as f:
-        run_info = json.load(f)
-        
-    return run_info
-
-
-def load_transformer(transformer_path):
-    transformer = joblib.load(transformer_path)
-    return transformer
-
-
-
-# columns to preprocess in data
-num_cols = ["age",
-            "ratings",
-            "pickup_time_minutes",
-            "distance"]
-
-nominal_cat_cols = ['weather',
-                    'type_of_order',
-                    'type_of_vehicle',
-                    "festival",
-                    "city_type",
-                    "is_weekend",
-                    "order_time_of_day"]
-
-ordinal_cat_cols = ["traffic","distance_type"]
-
-#mlflow client
-client = MlflowClient()
-
-# load the model info to get the model name
-model_name = load_model_information("run_information.json")['model_name']
-
-# stage of the model
-stage = "Staging"
-
-# get the latest model version
-# latest_model_ver = client.get_latest_versions(name=model_name,stages=[stage])
-# print(f"Latest model in production is version {latest_model_ver[0].version}")
-
-# load model path
-model_path = f"models:/{model_name}/{stage}"
-
-# load the latest model from model registry
-model = mlflow.sklearn.load_model(model_path)
-print("Model loaded successfully from DagsHub. Server is starting...")
-
-# load the preprocessor
-preprocessor_path = "models/preprocessor.joblib"
-preprocessor = load_transformer(preprocessor_path)
-
-# build the model pipeline
-model_pipe = Pipeline(steps=[
-    ('preprocess',preprocessor),
-    ("regressor",model)
-])
-
-# create the app
-app = FastAPI()
-
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Templates setup
-templates = Jinja2Templates(directory="templates")
-
-
-# create the home endpoint
-@app.get(path="/")
-def home(request: Request):
-    return templates.TemplateResponse("home.html", {
-        "request": request,
-        "model_name": model_name,
-        "stage": stage
-    })
-
-# create the predict endpoint
-@app.post(path="/predict")
-def do_predictions(data: Data):
-    pred_data = pd.DataFrame(
-        { 'ID': data.ID,
-        'Delivery_person_ID': data.Delivery_person_ID,
-        'Delivery_person_Age': data.Delivery_person_Age,
-        'Delivery_person_Ratings': data.Delivery_person_Ratings,
-        'Restaurant_latitude': data.Restaurant_latitude,
-        'Restaurant_longitude': data.Restaurant_longitude,
-        'Delivery_location_latitude': data.Delivery_location_latitude,
-        'Delivery_location_longitude': data.Delivery_location_longitude,
-        'Order_Date': data.Order_Date,
-        'Time_Orderd': data.Time_Orderd,
-        'Time_Order_picked': data.Time_Order_picked,
-        'Weatherconditions': data.Weatherconditions,
-        'Road_traffic_density': data.Road_traffic_density,
-        'Vehicle_condition': data.Vehicle_condition,
-        'Type_of_order': data.Type_of_order,
-        'Type_of_vehicle': data.Type_of_vehicle,
-        'multiple_deliveries': data.multiple_deliveries,
-        'Festival': data.Festival,
-        'City': data.City
-        },index=[0]
-        
-    )
-    # clean the raw input data
-    cleaned_data = perform_data_cleaning(pred_data)
-    # get the predictions
-    predictions = model_pipe.predict(cleaned_data)[0]
-
-    return predictions
-   
-   
 if __name__ == "__main__":
-    uvicorn.run(app="app:app",host="0.0.0.0",port=8000)
+    # Render provides a 'PORT' environment variable (usually 10000)
+    # If it doesn't exist (like on your PC), it defaults to 5000
+    port = int(os.environ.get("PORT", 5000))
+
+    # host='0.0.0.0' is required for the cloud to "see" the app
+    app.run(host="0.0.0.0", port=port)
