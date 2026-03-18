@@ -187,7 +187,7 @@ import os
 if __name__ == "__main__":
     # Render provides a 'PORT' environment variable (usually 10000)
     # If it doesn't exist (like on your PC), it defaults to 5000
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
 
     # host='0.0.0.0' is required for the cloud to "see" the app
     app.run(host="0.0.0.0", port=port)
