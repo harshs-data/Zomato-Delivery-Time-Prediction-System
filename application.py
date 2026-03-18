@@ -36,18 +36,22 @@ warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger("model_api")
 
 # ── Feature schema (mirrors training data_preprocessing.py exactly) ────────────
 # Handled by MinMaxScaler
-NUM_COLS         = ["age", "ratings", "pickup_time_minutes", "distance"]
+NUM_COLS = ["age", "ratings", "pickup_time_minutes", "distance"]
 # Handled by OneHotEncoder
 NOMINAL_CAT_COLS = [
-    "weather", "type_of_order", "type_of_vehicle",
-    "festival", "city_type", "is_weekend", "order_time_of_day"
+    "weather",
+    "type_of_order",
+    "type_of_vehicle",
+    "festival",
+    "city_type",
+    "is_weekend",
+    "order_time_of_day",
 ]
 # Handled by OrdinalEncoder
 ORDINAL_CAT_COLS = ["traffic", "distance_type"]
@@ -56,19 +60,19 @@ PASSTHROUGH_COLS = ["vehicle_condition", "multiple_deliveries"]
 
 # Input column order for DataFrame construction
 ALL_FEATURES = NUM_COLS + NOMINAL_CAT_COLS + ORDINAL_CAT_COLS + PASSTHROUGH_COLS
-TARGET       = "time_taken"
+TARGET = "time_taken"
 
 VALID_VALUES = {
-    "traffic":       ["low", "medium", "high", "jam"],
+    "traffic": ["low", "medium", "high", "jam"],
     "distance_type": ["short", "medium", "long", "very_long"],
 }
 
 # ── Load artifacts ─────────────────────────────────────────────────────────────
 MODELS_DIR = Path("models")
 logger.info("Loading model artifacts …")
-preprocessor      = joblib.load(MODELS_DIR / "preprocessor.joblib")
+preprocessor = joblib.load(MODELS_DIR / "preprocessor.joblib")
 power_transformer = joblib.load(MODELS_DIR / "power_transformer.joblib")
-stacking_model    = joblib.load(MODELS_DIR / "stacking_regressor.joblib")
+stacking_model = joblib.load(MODELS_DIR / "stacking_regressor.joblib")
 logger.info("All artifacts loaded ✓")
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
@@ -110,6 +114,7 @@ def run_pipeline(df: pd.DataFrame) -> list:
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -127,14 +132,12 @@ def predict():
         if errors:
             return jsonify({"error": errors}), 422
 
-        df   = pd.DataFrame([data])[ALL_FEATURES]
+        df = pd.DataFrame([data])[ALL_FEATURES]
         pred = run_pipeline(df)[0]
         logger.info(f"Single prediction → {pred:.2f} min")
-        return jsonify({
-            "prediction": round(pred, 4),
-            "target":     TARGET,
-            "unit":       "minutes"
-        })
+        return jsonify(
+            {"prediction": round(pred, 4), "target": TARGET, "unit": "minutes"}
+        )
 
     except Exception as e:
         logger.error(f"Prediction error: {e}")
@@ -145,7 +148,7 @@ def predict():
 def predict_batch():
     """Batch prediction."""
     try:
-        body    = request.get_json(force=True)
+        body = request.get_json(force=True)
         records = body.get("records", [])
 
         if not records:
@@ -156,15 +159,17 @@ def predict_batch():
             if errors:
                 return jsonify({"error": f"Record {i}: {errors}"}), 422
 
-        df    = pd.DataFrame(records)[ALL_FEATURES]
+        df = pd.DataFrame(records)[ALL_FEATURES]
         preds = [round(p, 4) for p in run_pipeline(df)]
         logger.info(f"Batch prediction → {len(preds)} records")
-        return jsonify({
-            "predictions": preds,
-            "count":       len(preds),
-            "target":      TARGET,
-            "unit":        "minutes"
-        })
+        return jsonify(
+            {
+                "predictions": preds,
+                "count": len(preds),
+                "target": TARGET,
+                "unit": "minutes",
+            }
+        )
 
     except Exception as e:
         logger.error(f"Batch error: {e}")
@@ -177,5 +182,12 @@ def health():
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
+import os
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Render provides a 'PORT' environment variable (usually 10000)
+    # If it doesn't exist (like on your PC), it defaults to 5000
+    port = int(os.environ.get("PORT", 5000))
+
+    # host='0.0.0.0' is required for the cloud to "see" the app
+    app.run(host="0.0.0.0", port=port)
