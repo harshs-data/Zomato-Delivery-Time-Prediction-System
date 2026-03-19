@@ -68,13 +68,17 @@ VALID_VALUES = {
 }
 
 # ── Load artifacts ─────────────────────────────────────────────────────────────
-MODELS_DIR = Path("models")
-logger.info("Loading model artifacts …")
+# This gets the absolute path of the folder containing app.py
+BASE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = BASE_DIR / "models"
+
+logger.info(f"Loading model artifacts from: {MODELS_DIR}")
+
+# These lines stay the same
 preprocessor = joblib.load(MODELS_DIR / "preprocessor.joblib")
 power_transformer = joblib.load(MODELS_DIR / "power_transformer.joblib")
 stacking_model = joblib.load(MODELS_DIR / "stacking_regressor.joblib")
 logger.info("All artifacts loaded ✓")
-
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
@@ -82,7 +86,7 @@ app = Flask(__name__)
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def validate(data: dict) -> list:
     errors = []
-    
+
     for f in ALL_FEATURES:
         if f not in data:
             errors.append(f"Missing field '{f}'")
@@ -90,50 +94,72 @@ def validate(data: dict) -> list:
             val = data[f]
             if val is None or str(val).strip() == "":
                 errors.append(f"Field '{f}' cannot be empty")
-                
+
     try:
         if "age" in data and str(data.get("age", "")).strip() != "":
             age = float(data["age"])
             if not (18 <= age <= 65):
                 errors.append("Age must be between 18 and 65")
-                
+
         if "ratings" in data and str(data.get("ratings", "")).strip() != "":
             ratings = float(data["ratings"])
             if not (1.0 <= ratings <= 5.0):
                 errors.append("Ratings must be between 1.0 and 5.0")
-                
+
         if "distance" in data and str(data.get("distance", "")).strip() != "":
             distance = float(data["distance"])
             if not (0.5 <= distance <= 30.0):
-                errors.append("Invalid Distance: We only deliver within a 0.5km to 30km range.")
+                errors.append(
+                    "Invalid Distance: We only deliver within a 0.5km to 30km range."
+                )
 
-        if "pickup_time_minutes" in data and str(data.get("pickup_time_minutes", "")).strip() != "":
+        if (
+            "pickup_time_minutes" in data
+            and str(data.get("pickup_time_minutes", "")).strip() != ""
+        ):
             pt = float(data["pickup_time_minutes"])
             if not (5 <= pt <= 120):
-                errors.append("Invalid Time: Delivery time must be between 5 and 120 minutes.")
-                
-        if "Time_taken(min)" in data and str(data.get("Time_taken(min)", "")).strip() != "":
+                errors.append(
+                    "Invalid Time: Delivery time must be between 5 and 120 minutes."
+                )
+
+        if (
+            "Time_taken(min)" in data
+            and str(data.get("Time_taken(min)", "")).strip() != ""
+        ):
             tt = float(data["Time_taken(min)"])
             if not (5 <= tt <= 120):
-                errors.append("Invalid Time: Delivery time must be between 5 and 120 minutes.")
+                errors.append(
+                    "Invalid Time: Delivery time must be between 5 and 120 minutes."
+                )
 
-        if "vehicle_condition" in data and str(data.get("vehicle_condition", "")).strip() != "":
+        if (
+            "vehicle_condition" in data
+            and str(data.get("vehicle_condition", "")).strip() != ""
+        ):
             vc = float(data["vehicle_condition"])
             if not (0 <= vc <= 3):
                 errors.append("Vehicle Condition must be between 0 and 3")
 
-        if "multiple_deliveries" in data and str(data.get("multiple_deliveries", "")).strip() != "":
+        if (
+            "multiple_deliveries" in data
+            and str(data.get("multiple_deliveries", "")).strip() != ""
+        ):
             md = float(data["multiple_deliveries"])
             if not (0 <= md <= 3):
                 errors.append("Multiple Deliveries must be between 0 and 3")
-                
+
     except ValueError:
         raise ValueError("One or more numeric fields contain text instead of numbers")
-        
+
     for col, allowed in VALID_VALUES.items():
-        if col in data and str(data.get(col, "")).strip() != "" and data[col] not in allowed:
+        if (
+            col in data
+            and str(data.get(col, "")).strip() != ""
+            and data[col] not in allowed
+        ):
             errors.append(f"'{col}' must be one of {allowed}")
-            
+
     return errors
 
 
