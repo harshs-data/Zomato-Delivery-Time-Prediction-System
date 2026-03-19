@@ -19,7 +19,8 @@ from sklearn.exceptions import InconsistentVersionWarning
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-MODELS_DIR = Path("models")
+BASE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = BASE_DIR / "models"
 
 # ── Feature schema (mirrors training data_preprocessing.py exactly) ────────────
 NUM_COLS         = ["age", "ratings", "pickup_time_minutes", "distance"]

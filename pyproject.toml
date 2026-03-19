@@ -10,7 +10,8 @@ dependencies = [
     "numpy",
     "lightgbm",
     "scikit-learn",
-    "gunicorn" 
+    "gunicorn",
+    "gdown>=5.2.1",
 ]
 
 [tool.hatch.build.targets.wheel]
