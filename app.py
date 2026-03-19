@@ -82,12 +82,58 @@ app = Flask(__name__)
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def validate(data: dict) -> list:
     errors = []
-    missing = [f for f in ALL_FEATURES if f not in data]
-    if missing:
-        errors.append(f"Missing fields: {missing}")
+    
+    for f in ALL_FEATURES:
+        if f not in data:
+            errors.append(f"Missing field '{f}'")
+        else:
+            val = data[f]
+            if val is None or str(val).strip() == "":
+                errors.append(f"Field '{f}' cannot be empty")
+                
+    try:
+        if "age" in data and str(data.get("age", "")).strip() != "":
+            age = float(data["age"])
+            if not (18 <= age <= 65):
+                errors.append("Age must be between 18 and 65")
+                
+        if "ratings" in data and str(data.get("ratings", "")).strip() != "":
+            ratings = float(data["ratings"])
+            if not (1.0 <= ratings <= 5.0):
+                errors.append("Ratings must be between 1.0 and 5.0")
+                
+        if "distance" in data and str(data.get("distance", "")).strip() != "":
+            distance = float(data["distance"])
+            if not (0.5 <= distance <= 30.0):
+                errors.append("Invalid Distance: We only deliver within a 0.5km to 30km range.")
+
+        if "pickup_time_minutes" in data and str(data.get("pickup_time_minutes", "")).strip() != "":
+            pt = float(data["pickup_time_minutes"])
+            if not (5 <= pt <= 120):
+                errors.append("Invalid Time: Delivery time must be between 5 and 120 minutes.")
+                
+        if "Time_taken(min)" in data and str(data.get("Time_taken(min)", "")).strip() != "":
+            tt = float(data["Time_taken(min)"])
+            if not (5 <= tt <= 120):
+                errors.append("Invalid Time: Delivery time must be between 5 and 120 minutes.")
+
+        if "vehicle_condition" in data and str(data.get("vehicle_condition", "")).strip() != "":
+            vc = float(data["vehicle_condition"])
+            if not (0 <= vc <= 3):
+                errors.append("Vehicle Condition must be between 0 and 3")
+
+        if "multiple_deliveries" in data and str(data.get("multiple_deliveries", "")).strip() != "":
+            md = float(data["multiple_deliveries"])
+            if not (0 <= md <= 3):
+                errors.append("Multiple Deliveries must be between 0 and 3")
+                
+    except ValueError:
+        raise ValueError("One or more numeric fields contain text instead of numbers")
+        
     for col, allowed in VALID_VALUES.items():
-        if col in data and data[col] not in allowed:
-            errors.append(f"'{col}' must be one of {allowed}, got '{data[col]}'")
+        if col in data and str(data.get(col, "")).strip() != "" and data[col] not in allowed:
+            errors.append(f"'{col}' must be one of {allowed}")
+            
     return errors
 
 
@@ -130,7 +176,7 @@ def predict():
 
         errors = validate(data)
         if errors:
-            return jsonify({"error": errors}), 422
+            return jsonify({"error": " | ".join(errors)}), 422
 
         df = pd.DataFrame([data])[ALL_FEATURES]
         pred = run_pipeline(df)[0]
@@ -139,9 +185,12 @@ def predict():
             {"prediction": round(pred, 4), "target": TARGET, "unit": "minutes"}
         )
 
+    except ValueError as ve:
+        logger.error(f"ValueError: {ve}")
+        return jsonify({"error": str(ve)}), 400
     except Exception as e:
         logger.error(f"Prediction error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Server error: " + str(e)}), 500
 
 
 @app.route("/predict/batch", methods=["POST"])

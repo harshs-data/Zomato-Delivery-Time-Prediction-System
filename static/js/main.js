@@ -46,8 +46,24 @@ function getFormData() {
 
 function showErr(msg) {
   const el = document.getElementById("form-err");
-  el.textContent = msg; el.style.display = "block";
-  setTimeout(() => el.style.display = "none", 5000);
+  el.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 12px; font-family: 'Space Grotesk', sans-serif;">
+      <span style="font-size: 1.4em;">⚠️</span>
+      <div style="text-align: left;">
+        <div style="color: #ff4d4d; font-weight: 600; font-size: 1.05em; letter-spacing: 0.5px;">VALIDATION ERROR</div>
+        <div style="color: #ffb3b3; font-size: 0.9em; margin-top: 3px;">${msg}</div>
+      </div>
+    </div>
+  `;
+  el.style.display = "block";
+  el.style.backgroundColor = "rgba(255, 77, 77, 0.08)";
+  el.style.border = "1px solid rgba(255, 77, 77, 0.15)";
+  el.style.borderLeft = "4px solid #ff4d4d";
+  el.style.padding = "14px 18px";
+  el.style.borderRadius = "8px";
+  el.style.marginTop = "16px";
+  el.style.boxShadow = "0 4px 12px rgba(255, 77, 77, 0.05)";
+  setTimeout(() => el.style.display = "none", 8000);
 }
 
 function resetForm() {
