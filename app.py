@@ -71,13 +71,28 @@ VALID_VALUES = {
 # This gets the absolute path of the folder containing app.py
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
+MODELS_DIR.mkdir(exist_ok=True)
+
+# Download stacking_regressor.joblib from Google Drive if not present locally
+STACKING_MODEL_PATH = MODELS_DIR / "stacking_regressor.joblib"
+if not STACKING_MODEL_PATH.exists():
+    import gdown
+    GDRIVE_FILE_ID = "1Z2cRlddS8YQENM6fFVa-wGzfuXuJ-Svw"
+    url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
+    logger.info(f"Downloading stacking_regressor.joblib from Google Drive...")
+    try:
+        gdown.download(url, str(STACKING_MODEL_PATH), quiet=False)
+        logger.info("Download complete ✓")
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
+        raise
 
 logger.info(f"Loading model artifacts from: {MODELS_DIR}")
 
 # These lines stay the same
 preprocessor = joblib.load(MODELS_DIR / "preprocessor.joblib")
 power_transformer = joblib.load(MODELS_DIR / "power_transformer.joblib")
-stacking_model = joblib.load(MODELS_DIR / "stacking_regressor.joblib")
+stacking_model = joblib.load(STACKING_MODEL_PATH)
 logger.info("All artifacts loaded ✓")
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
