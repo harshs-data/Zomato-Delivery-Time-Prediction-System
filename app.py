@@ -34,16 +34,14 @@ from flask import Flask, request, jsonify, render_template
 
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
-# ── Logging ────────────────────────────────────────────────────────────────────
+# ── Logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger("model_api")
 
-# ── Feature schema (mirrors training data_preprocessing.py exactly) ────────────
-# Handled by MinMaxScaler
 NUM_COLS = ["age", "ratings", "pickup_time_minutes", "distance"]
-# Handled by OneHotEncoder
+
 NOMINAL_CAT_COLS = [
     "weather",
     "type_of_order",
@@ -53,12 +51,10 @@ NOMINAL_CAT_COLS = [
     "is_weekend",
     "order_time_of_day",
 ]
-# Handled by OrdinalEncoder
 ORDINAL_CAT_COLS = ["traffic", "distance_type"]
-# remainder="passthrough" — passed through as-is by ColumnTransformer
+
 PASSTHROUGH_COLS = ["vehicle_condition", "multiple_deliveries"]
 
-# Input column order for DataFrame construction
 ALL_FEATURES = NUM_COLS + NOMINAL_CAT_COLS + ORDINAL_CAT_COLS + PASSTHROUGH_COLS
 TARGET = "time_taken"
 
@@ -67,16 +63,15 @@ VALID_VALUES = {
     "distance_type": ["short", "medium", "long", "very_long"],
 }
 
-# ── Load artifacts ─────────────────────────────────────────────────────────────
 # This gets the absolute path of the folder containing app.py
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 MODELS_DIR.mkdir(exist_ok=True)
 
-# Download stacking_regressor.joblib from Google Drive if not present locally
 STACKING_MODEL_PATH = MODELS_DIR / "stacking_regressor.joblib"
 if not STACKING_MODEL_PATH.exists():
     import gdown
+
     GDRIVE_FILE_ID = "1Z2cRlddS8YQENM6fFVa-wGzfuXuJ-Svw"
     url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
     logger.info(f"Downloading stacking_regressor.joblib from Google Drive...")
@@ -94,11 +89,11 @@ preprocessor = joblib.load(MODELS_DIR / "preprocessor.joblib")
 power_transformer = joblib.load(MODELS_DIR / "power_transformer.joblib")
 stacking_model = joblib.load(STACKING_MODEL_PATH)
 logger.info("All artifacts loaded ✓")
+
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
 def validate(data: dict) -> list:
     errors = []
 
@@ -185,13 +180,10 @@ def run_pipeline(df: pd.DataFrame) -> list:
       2. stacking_model.predict   — raw output in power-transformed target space
       3. power_transformer.inverse_transform — convert back to original minutes scale
     """
-    # Step 1: preprocess features
     X_trans = preprocessor.transform(df)
 
-    # Step 2: model predicts in transformed-target space
     y_pred_transformed = stacking_model.predict(X_trans)
 
-    # Step 3: inverse transform back to original scale (minutes)
     y_pred = power_transformer.inverse_transform(
         y_pred_transformed.reshape(-1, 1)
     ).flatten()
@@ -275,9 +267,6 @@ def health():
 import os
 
 if __name__ == "__main__":
-    # Render provides a 'PORT' environment variable (usually 10000)
-    # If it doesn't exist (like on your PC), it defaults to 5000
     port = int(os.environ.get("PORT", 10000))
 
-    # host='0.0.0.0' is required for the cloud to "see" the app
     app.run(host="0.0.0.0", port=port)
