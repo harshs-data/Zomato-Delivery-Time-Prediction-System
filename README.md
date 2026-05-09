@@ -223,7 +223,3 @@ Once the Flask app is running, you can hit the prediction endpoint:
 This project is licensed under the Apache License. See the [LICENSE](LICENSE) file for details.
 
 ---
-
-<p align="center">
-  Built by <a href="https://github.com/quamrl-hoda">Quamrul Hoda</a> | Cognefy
-</p>
